@@ -189,21 +189,20 @@
     </div>
     <div id="canvas-container"></div>
 
-    <!-- Scripts (国内 CDN) -->
-    <script src="https://cdn.staticfile.net/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/controls/OrbitControls.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
-        crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <!-- Scripts (本地化) -->
+    <script src="libs/three/three.min.js"></script>
+    <script src="libs/three/OrbitControls.js"></script>
+    <script src="libs/mediapipe/camera_utils.js"></script>
+    <script src="libs/mediapipe/control_utils.js"></script>
+    <script src="libs/mediapipe/hands/hands.js"></script>
 
-    <!-- Post-processing Scripts (国内 CDN) -->
-    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/shaders/CopyShader.min.js"></script>
-    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/shaders/LuminosityHighPassShader.min.js"></script>
-    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/postprocessing/EffectComposer.min.js"></script>
-    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/postprocessing/RenderPass.min.js"></script>
-    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/postprocessing/ShaderPass.min.js"></script>
-    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/postprocessing/UnrealBloomPass.min.js"></script>
+    <!-- Post-processing Scripts (本地化) -->
+    <script src="libs/three/CopyShader.js"></script>
+    <script src="libs/three/LuminosityHighPassShader.js"></script>
+    <script src="libs/three/EffectComposer.js"></script>
+    <script src="libs/three/RenderPass.js"></script>
+    <script src="libs/three/ShaderPass.js"></script>
+    <script src="libs/three/UnrealBloomPass.js"></script>
 
     <script>
         // --- GLOBAL STATE ---
@@ -311,8 +310,8 @@
         updateProgress(30, '正在加载AI手势识别模型...');
         const hands = new Hands({
             locateFile: (file) => {
-                updateProgress(40, '正在下载模型文件: ' + file.substring(0, 20) + '...');
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                updateProgress(40, '正在加载模型: ' + file.substring(0, 20) + '...');
+                return `libs/mediapipe/hands/${file}`;
             }
         });
         hands.setOptions({
