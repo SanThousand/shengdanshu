@@ -211,6 +211,9 @@
         hands.onResults(onResults);
 
         // --- DEBUG & INIT CHECKS ---
+        let frameCount = 0;
+        let lastFrameTime = 0;
+
         window.addEventListener('load', () => {
             if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
                 const msg = "警告：当前环境不安全(HTTP)，无法访问摄像头。\n请使用 HTTPS 协议或 localhost 访问。";
@@ -218,6 +221,76 @@
                 alert(msg);
             }
         });
+
+        function onResults(results) {
+            frameCount++;
+            const now = performance.now();
+            const fps = 1000 / (now - lastFrameTime);
+            lastFrameTime = now;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                STATE.handDetected = true;
+                handIndicator.classList.add('active');
+
+                const landmarks = results.multiHandLandmarks[0];
+                const wrist = landmarks[0];
+                const middleMCP = landmarks[9]; // Middle finger base
+
+                // --- NEW ALGORITHM: Finger Extension Ratio ---
+                // We check 4 fingers: Index(8), Middle(12), Ring(16), Pinky(20)
+                // We compare the distance from Wrist(0) to Tip vs Wrist(0) to MCP(base)
+                // If Tip distance is significantly larger than MCP distance, finger is extended.
+
+                const fingerIndices = [8, 12, 16, 20];
+                const mcpIndices = [5, 9, 13, 17];
+                let totalRatio = 0;
+
+                for (let i = 0; i < 4; i++) {
+                    const tip = landmarks[fingerIndices[i]];
+                    const mcp = landmarks[mcpIndices[i]];
+
+                    const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+                    const distMcp = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
+
+                    // Avoid division by zero, though unlikely
+                    if (distMcp > 0.001) {
+                        totalRatio += distTip / distMcp;
+                    }
+                }
+
+                const avgRatio = totalRatio / 4;
+
+                // Thresholds based on testing:
+                // Fist (Closed): Ratio usually ~0.8 to 1.2
+                // Open Hand: Ratio usually > 1.8
+                // We map this range to 0-1 for openness
+                const minRatio = 1.1; // Below this is closed
+                const maxRatio = 1.7; // Above this is fully open
+
+                let rawOpenness = (avgRatio - minRatio) / (maxRatio - minRatio);
+
+                // Clamp
+                if (rawOpenness < 0) rawOpenness = 0;
+                if (rawOpenness > 1) rawOpenness = 1;
+
+                STATE.targetOpenness = rawOpenness;
+                STATE.targetHandX = middleMCP.x;
+
+                // Debug output
+                debugStatus.textContent = `FPS: ${fps.toFixed(1)} | 手指: ${avgRatio.toFixed(2)} | 张开: ${rawOpenness.toFixed(2)}`;
+
+                const scale = 1 + STATE.targetOpenness * 1.5;
+                handIndicator.style.transform = `scale(${scale})`;
+
+            } else {
+                STATE.handDetected = false;
+                STATE.targetOpenness = 0;
+                STATE.targetHandX = 0.5; // Reset to center
+                handIndicator.classList.remove('active');
+                handIndicator.style.transform = `scale(1)`;
+                debugStatus.textContent = `系统正常 | 处理帧数: ${frameCount} | 未检测到手势`;
+            }
+        }
 
         function startCamera() {
             debugStatus.textContent = "正在请求摄像头...";
@@ -230,7 +303,10 @@
             };
 
             const camera = new Camera(videoElement, {
-                onFrame: async () => { await hands.send({ image: videoElement }); },
+                onFrame: async () => {
+                    // debugStatus.textContent = "正在处理视频帧..."; // Too spammy, but confirms loop
+                    await hands.send({ image: videoElement });
+                },
                 width: 640,
                 height: 480
             });
@@ -240,7 +316,8 @@
 
             camera.start()
                 .then(() => {
-                    debugStatus.textContent = "摄像头已启动 | 请展示手势";
+                    // Success (promise resolves when camera starts)
+                    console.log("Camera started successfully");
                 })
                 .catch(err => {
                     console.error("Camera error:", err);
