@@ -314,7 +314,7 @@
 
         const hands = new Hands({
             locateFile: (file) => {
-                const path = `libs/mediapipe/hands/${file}`;
+                const path = `libs/mediapipe/hands/${file}?t=${Date.now()}`;
                 console.log(`[MediaPipe] Loading file: ${path}`);
                 updateProgress(40, '正在加载模型: ' + file.substring(0, 25) + '...');
                 return path;
