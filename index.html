@@ -248,6 +248,17 @@
         let lastSendTime = 0;
         let sendCount = 0;
         let handsReady = false;
+        let handsInitFailed = false;
+        let sceneReady = false;
+        let cameraStarting = false;
+        let cameraStarted = false;
+
+        function maybeStartCamera() {
+            if (cameraStarted || cameraStarting) return;
+            if (!sceneReady) return;
+            if (!handsReady) return;
+            startCamera();
+        }
 
         function onResults(results) {
             frameCount++;
@@ -312,35 +323,50 @@
         updateProgress(30, '正在加载AI手势识别模型...');
         console.log('[MediaPipe] Creating Hands instance...');
 
-        const hands = new Hands({
-            locateFile: (file) => {
-                const path = `libs/mediapipe/hands/${file}?t=${Date.now()}`;
-                console.log(`[MediaPipe] Loading file: ${path}`);
-                updateProgress(40, '正在加载模型: ' + file.substring(0, 25) + '...');
-                return path;
-            }
-        });
-
-        hands.setOptions({
-            maxNumHands: 1,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-
-        hands.onResults(onResults);
-
-        // Initialize the model proactively
-        console.log('[MediaPipe] Initializing hands model...');
-        hands.initialize().then(() => {
-            console.log('[MediaPipe] ✓ Hands model initialized successfully!');
-            handsReady = true;
-            updateProgress(60, 'AI模型初始化完成!');
-        }).catch(err => {
-            console.error('[MediaPipe] ✗ Hands model initialization failed:', err);
-            debugStatus.textContent = '错误: AI模型加载失败 - ' + err.message;
+        let hands = null;
+        if (location.protocol === 'file:') {
+            handsInitFailed = true;
+            debugStatus.textContent = '错误：当前通过 file:// 直接打开页面，浏览器会限制模型文件/摄像头访问。请用本地服务器访问（例如 http://localhost:8080）。';
             debugStatus.style.color = '#ff0000';
-        });
+            updateProgress(100, '请使用本地服务器运行（不要直接打开文件）');
+            console.error('[MediaPipe] Blocked: running from file://, skip initializing Hands.');
+            setTimeout(hideLoadingScreen, 500);
+        } else {
+            hands = new Hands({
+                locateFile: (file) => {
+                    const path = new URL(`libs/mediapipe/hands/${file}`, window.location.href).toString();
+                    console.log(`[MediaPipe] Loading file: ${path}`);
+                    updateProgress(40, '正在加载模型: ' + file.substring(0, 25) + '...');
+                    return path;
+                }
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults(onResults);
+
+            // Initialize the model proactively
+            console.log('[MediaPipe] Initializing hands model...');
+            hands.initialize().then(() => {
+                console.log('[MediaPipe] ✓ Hands model initialized successfully!');
+                handsReady = true;
+                updateProgress(60, 'AI模型初始化完成!');
+                maybeStartCamera();
+            }).catch(err => {
+                handsInitFailed = true;
+                console.error('[MediaPipe] ✗ Hands model initialization failed:', err);
+                debugStatus.textContent = '错误: AI模型加载失败 - ' + ((err && err.message) ? err.message : String(err));
+                debugStatus.style.color = '#ff0000';
+                updateProgress(100, 'AI模型加载失败（可继续使用鼠标）');
+                // 不让用户被加载层“困死”：降级到纯 3D 体验
+                setTimeout(hideLoadingScreen, 500);
+            });
+        }
 
         // --- INIT CHECKS ---
         window.addEventListener('load', () => {
@@ -351,9 +377,26 @@
                 debugStatus.style.color = '#ff0000';
                 alert(msg);
             }
+
+            // 关键：启动 3D 场景（缺失 init() 会导致页面一直停在加载层）
+            try {
+                init();
+            } catch (e) {
+                console.error('[System] init() failed:', e);
+                debugStatus.textContent = '错误：3D 场景初始化失败 - ' + ((e && e.message) ? e.message : String(e));
+                debugStatus.style.color = '#ff0000';
+                updateProgress(100, '初始化失败（请查看控制台日志）');
+                setTimeout(hideLoadingScreen, 500);
+                return;
+            }
+
+            // 如果模型已就绪，尝试启动摄像头；否则等待 hands.initialize() 完成后触发
+            maybeStartCamera();
         });
 
         function startCamera() {
+            if (cameraStarted || cameraStarting) return;
+            cameraStarting = true;
             updateProgress(90, '正在请求摄像头权限...');
             debugStatus.textContent = "正在请求摄像头...";
             console.log('[Camera] Starting camera initialization...');
@@ -377,6 +420,7 @@
                     // Check if video has valid dimensions before sending
                     if (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
                         try {
+                            if (!handsReady || !hands) return;
                             await hands.send({ image: videoElement });
                         } catch (e) {
                             console.error("Hands send error:", e);
@@ -394,6 +438,8 @@
 
             camera.start()
                 .then(() => {
+                    cameraStarted = true;
+                    cameraStarting = false;
                     // Success (promise resolves when camera starts)
                     console.log("Camera started successfully");
                     debugStatus.textContent = "摄像头已启动 | 等待手势...";
@@ -409,6 +455,7 @@
                     }, 5000);
                 })
                 .catch(err => {
+                    cameraStarting = false;
                     console.error("Camera error:", err);
                     let errorMsg = "摄像头启动失败：未知错误";
 
@@ -502,10 +549,20 @@
             composer.addPass(bloomPass);
 
             window.addEventListener('resize', onWindowResize, false);
-            updateProgress(80, '场景创建完成，正在初始化摄像头...');
-            startCamera();
+            sceneReady = true;
+
+            if (handsInitFailed) {
+                updateProgress(100, '加载完成（手势不可用）');
+                // handsInitFailed 场景下 hideLoadingScreen 已在上游做了兜底，这里再补一层不影响
+                setTimeout(hideLoadingScreen, 500);
+            } else {
+                updateProgress(80, '场景创建完成，等待AI模型初始化...');
+                maybeStartCamera();
+            }
+
             window.addEventListener('click', () => {
-                if (debugStatus.textContent.includes("Blocked")) startCamera();
+                // 允许用户在权限被拒后重试
+                maybeStartCamera();
             });
 
             animate();

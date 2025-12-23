@@ -1,5 +1,5 @@
 $baseUrl = "https://cdn.jsdelivr.net/npm/@mediapipe/hands/"
-$targetDir = "d:\my_project\web_project\shengdan\libs\mediapipe\hands"
+$targetDir = Join-Path -Path $PSScriptRoot -ChildPath "libs\\mediapipe\\hands"
 
 # Ensure target directory exists
 if (-not (Test-Path -Path $targetDir)) {
@@ -15,7 +15,8 @@ $files = @(
     "hands_solution_wasm_bin.wasm",
     "hands_solution_packed_assets.data",
     "hands.binarypb",
-    "hand_landmark_full.tflite"
+    "hand_landmark_full.tflite",
+    "hand_landmark_lite.tflite"
 )
 
 foreach ($file in $files) {
