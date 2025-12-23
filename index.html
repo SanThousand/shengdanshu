@@ -318,6 +318,7 @@
                 .then(() => {
                     // Success (promise resolves when camera starts)
                     console.log("Camera started successfully");
+                    debugStatus.textContent = "摄像头已启动 | 等待手势...";
                 })
                 .catch(err => {
                     console.error("Camera error:", err);
