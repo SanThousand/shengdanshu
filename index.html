@@ -91,10 +91,94 @@
             background-color: #00ffff;
             box-shadow: 0 0 15px #00ffff;
         }
+
+        /* --- Loading Screen --- */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 50%, #0a1a2a 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.8s ease-out;
+        }
+
+        #loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-title {
+            font-size: 2rem;
+            color: #fff;
+            margin-bottom: 30px;
+            background: linear-gradient(90deg, #ff9a9e, #fecfef, #a18cd1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.6;
+            }
+        }
+
+        .progress-container {
+            width: 300px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #00ffff, #a18cd1, #ff9a9e);
+            border-radius: 3px;
+            transition: width 0.3s ease-out;
+        }
+
+        .loading-status {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.9rem;
+        }
+
+        .loading-tip {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.75rem;
+            margin-top: 40px;
+            max-width: 280px;
+            text-align: center;
+            line-height: 1.5;
+        }
     </style>
 </head>
 
 <body>
+
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="loading-title">✨ 量子银河树 ✨</div>
+        <div class="progress-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="loading-status" id="loading-status">正在加载核心库...</div>
+        <div class="loading-tip">首次加载需要下载AI手势识别模型，请耐心等待</div>
+    </div>
 
     <video id="input_video" playsinline webkit-playsinline muted autoplay></video>
     <div id="debug-status">系统初始化中...</div>
@@ -105,20 +189,21 @@
     </div>
     <div id="canvas-container"></div>
 
-    <!-- Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://unpkg.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://unpkg.com/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <!-- Scripts (国内 CDN) -->
+    <script src="https://cdn.staticfile.net/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/controls/OrbitControls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
-    <!-- Post-processing Scripts -->
-    <script src="https://unpkg.com/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <!-- Post-processing Scripts (国内 CDN) -->
+    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/shaders/CopyShader.min.js"></script>
+    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/shaders/LuminosityHighPassShader.min.js"></script>
+    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/postprocessing/EffectComposer.min.js"></script>
+    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/postprocessing/RenderPass.min.js"></script>
+    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/postprocessing/ShaderPass.min.js"></script>
+    <script src="https://cdn.staticfile.net/three.js/r128/examples/js/postprocessing/UnrealBloomPass.min.js"></script>
 
     <script>
         // --- GLOBAL STATE ---
@@ -130,6 +215,28 @@
             targetHandX: 0.5,
             smoothness: 0.08
         };
+
+        // --- LOADING PROGRESS ---
+        const loadingScreen = document.getElementById('loading-screen');
+        const progressBar = document.getElementById('progress-bar');
+        const loadingStatus = document.getElementById('loading-status');
+        let loadProgress = 0;
+
+        function updateProgress(percent, status) {
+            loadProgress = percent;
+            progressBar.style.width = percent + '%';
+            loadingStatus.textContent = status;
+        }
+
+        function hideLoadingScreen() {
+            loadingScreen.classList.add('hidden');
+            setTimeout(() => {
+                loadingScreen.style.display = 'none';
+            }, 800);
+        }
+
+        // Initial progress
+        updateProgress(20, '核心库已加载，正在初始化手势识别...');
 
         // --- MEDIAPIPE ---
         const videoElement = document.getElementById('input_video');
@@ -201,7 +308,13 @@
             }
         }
 
-        const hands = new Hands({ locateFile: (file) => `https://unpkg.com/@mediapipe/hands/${file}` });
+        updateProgress(30, '正在加载AI手势识别模型...');
+        const hands = new Hands({
+            locateFile: (file) => {
+                updateProgress(40, '正在下载模型文件: ' + file.substring(0, 20) + '...');
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+            }
+        });
         hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
@@ -293,6 +406,7 @@
         }
 
         function startCamera() {
+            updateProgress(90, '正在请求摄像头权限...');
             debugStatus.textContent = "正在请求摄像头...";
 
             // Explicit constraints for mobile
@@ -319,6 +433,8 @@
                     // Success (promise resolves when camera starts)
                     console.log("Camera started successfully");
                     debugStatus.textContent = "摄像头已启动 | 等待手势...";
+                    updateProgress(100, '加载完成!');
+                    setTimeout(hideLoadingScreen, 500);
                 })
                 .catch(err => {
                     console.error("Camera error:", err);
@@ -338,6 +454,9 @@
 
                     debugStatus.textContent = "错误：" + errorMsg;
                     alert(errorMsg + "\n\n详细信息: " + err.name);
+                    // 即使摄像头失败也隐藏加载屏幕，允许用户看到场景
+                    updateProgress(100, '加载完成 (摄像头不可用)');
+                    setTimeout(hideLoadingScreen, 500);
                 });
         }
 
@@ -358,6 +477,7 @@
         let scene, camera, renderer, controls, composer;
         let treeSystem, snowSystem, starMesh, trunkSystem;
         let starParticles; // New global
+        let starSpeeds = []; // Fixed speeds for each star particle
         let meteors = [];
         let clock = new THREE.Clock();
 
@@ -365,6 +485,7 @@
         let treeColorsAttr, galaxyColorsAttr;
 
         function init() {
+            updateProgress(60, '正在创建3D场景...');
             scene = new THREE.Scene();
             scene.fog = new THREE.FogExp2(0x050510, 0.002);
 
@@ -409,6 +530,7 @@
             composer.addPass(bloomPass);
 
             window.addEventListener('resize', onWindowResize, false);
+            updateProgress(80, '场景创建完成，正在初始化摄像头...');
             startCamera();
             window.addEventListener('click', () => {
                 if (debugStatus.textContent.includes("Blocked")) startCamera();
@@ -540,6 +662,7 @@
             const positions = [];
             const colors = [];
             const sizes = [];
+            starSpeeds = []; // Reset speeds array
             const color = new THREE.Color();
 
             for (let i = 0; i < particleCount; i++) {
@@ -552,6 +675,9 @@
                 const z = r * Math.cos(phi);
 
                 positions.push(x, y, z);
+
+                // Store fixed speed for this particle (used in animation)
+                starSpeeds.push(0.015 + Math.random() * 0.015);
 
                 if (Math.random() > 0.5) {
                     color.setHex(0xffd700); // Gold
@@ -779,15 +905,14 @@
             if (starParticles) {
                 const positions = starParticles.geometry.attributes.position.array;
 
-                // Swirl animation
+                // Swirl animation with fixed per-particle speeds
                 for (let i = 0; i < positions.length; i += 3) {
-                    // Simple rotation around Y axis per particle for "busy" look
                     const x = positions[i];
                     const z = positions[i + 2];
 
-                    // Rotate
-                    const speed = 0.02 + Math.random() * 0.02;
-                    const angle = speed;
+                    // Use fixed speed stored at creation time for smooth rotation
+                    const particleIndex = i / 3;
+                    const angle = starSpeeds[particleIndex] || 0.02;
 
                     positions[i] = x * Math.cos(angle) - z * Math.sin(angle);
                     positions[i + 2] = x * Math.sin(angle) + z * Math.cos(angle);
