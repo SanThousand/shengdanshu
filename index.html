@@ -242,19 +242,31 @@
         const debugStatus = document.getElementById('debug-status');
         const handIndicator = document.getElementById('hand-indicator');
 
+        // --- DEBUG VARIABLES ---
+        let frameCount = 0;
+        let lastFrameTime = 0;
+        let lastSendTime = 0;
+        let sendCount = 0;
+        let handsReady = false;
+
         function onResults(results) {
+            frameCount++;
+            const now = performance.now();
+            const fps = lastFrameTime > 0 ? (1000 / (now - lastFrameTime)) : 0;
+            lastFrameTime = now;
+
+            // Log every 30 frames to avoid spam
+            if (frameCount % 30 === 1) {
+                console.log(`[MediaPipe] onResults called. Frame: ${frameCount}, FPS: ${fps.toFixed(1)}, Hands detected: ${results.multiHandLandmarks?.length || 0}`);
+            }
+
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 STATE.handDetected = true;
                 handIndicator.classList.add('active');
 
                 const landmarks = results.multiHandLandmarks[0];
                 const wrist = landmarks[0];
-                const middleMCP = landmarks[9]; // Middle finger base
-
-                // --- NEW ALGORITHM: Finger Extension Ratio ---
-                // We check 4 fingers: Index(8), Middle(12), Ring(16), Pinky(20)
-                // We compare the distance from Wrist(0) to Tip vs Wrist(0) to MCP(base)
-                // If Tip distance is significantly larger than MCP distance, finger is extended.
+                const middleMCP = landmarks[9];
 
                 const fingerIndices = [8, 12, 16, 20];
                 const mcpIndices = [5, 9, 13, 17];
@@ -263,36 +275,25 @@
                 for (let i = 0; i < 4; i++) {
                     const tip = landmarks[fingerIndices[i]];
                     const mcp = landmarks[mcpIndices[i]];
-
                     const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
                     const distMcp = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
-
-                    // Avoid division by zero, though unlikely
                     if (distMcp > 0.001) {
                         totalRatio += distTip / distMcp;
                     }
                 }
 
                 const avgRatio = totalRatio / 4;
-
-                // Thresholds based on testing:
-                // Fist (Closed): Ratio usually ~0.8 to 1.2
-                // Open Hand: Ratio usually > 1.8
-                // We map this range to 0-1 for openness
-                const minRatio = 1.1; // Below this is closed
-                const maxRatio = 1.7; // Above this is fully open
-
+                const minRatio = 1.1;
+                const maxRatio = 1.7;
                 let rawOpenness = (avgRatio - minRatio) / (maxRatio - minRatio);
-
-                // Clamp
                 if (rawOpenness < 0) rawOpenness = 0;
                 if (rawOpenness > 1) rawOpenness = 1;
 
                 STATE.targetOpenness = rawOpenness;
                 STATE.targetHandX = middleMCP.x;
 
-                // Debug output
-                debugStatus.textContent = `手指比例: ${avgRatio.toFixed(2)} | 张开度: ${rawOpenness.toFixed(2)}`;
+                debugStatus.textContent = `✓ 检测到手势 | FPS: ${fps.toFixed(1)} | 手指比例: ${avgRatio.toFixed(2)} | 张开度: ${rawOpenness.toFixed(2)}`;
+                debugStatus.style.color = '#00ff00';
 
                 const scale = 1 + STATE.targetOpenness * 1.5;
                 handIndicator.style.transform = `scale(${scale})`;
@@ -300,132 +301,96 @@
             } else {
                 STATE.handDetected = false;
                 STATE.targetOpenness = 0;
-                STATE.targetHandX = 0.5; // Reset to center
+                STATE.targetHandX = 0.5;
                 handIndicator.classList.remove('active');
                 handIndicator.style.transform = `scale(1)`;
-                debugStatus.textContent = "系统正常 | 等待手势...";
+                debugStatus.textContent = `处理中 | FPS: ${fps.toFixed(1)} | 帧数: ${frameCount} | 等待手势...`;
+                debugStatus.style.color = 'rgba(0, 255, 255, 0.7)';
             }
         }
 
         updateProgress(30, '正在加载AI手势识别模型...');
+        console.log('[MediaPipe] Creating Hands instance...');
+
         const hands = new Hands({
             locateFile: (file) => {
-                updateProgress(40, '正在加载模型: ' + file.substring(0, 20) + '...');
-                return `libs/mediapipe/hands/${file}`;
+                const path = `libs/mediapipe/hands/${file}`;
+                console.log(`[MediaPipe] Loading file: ${path}`);
+                updateProgress(40, '正在加载模型: ' + file.substring(0, 25) + '...');
+                return path;
             }
         });
+
         hands.setOptions({
             maxNumHands: 1,
             modelComplexity: 1,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
+
         hands.onResults(onResults);
 
-        // --- DEBUG & INIT CHECKS ---
-        let frameCount = 0;
-        let lastFrameTime = 0;
+        // Initialize the model proactively
+        console.log('[MediaPipe] Initializing hands model...');
+        hands.initialize().then(() => {
+            console.log('[MediaPipe] ✓ Hands model initialized successfully!');
+            handsReady = true;
+            updateProgress(60, 'AI模型初始化完成!');
+        }).catch(err => {
+            console.error('[MediaPipe] ✗ Hands model initialization failed:', err);
+            debugStatus.textContent = '错误: AI模型加载失败 - ' + err.message;
+            debugStatus.style.color = '#ff0000';
+        });
 
+        // --- INIT CHECKS ---
         window.addEventListener('load', () => {
+            console.log('[System] Page loaded. Secure context:', window.isSecureContext);
             if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
                 const msg = "警告：当前环境不安全(HTTP)，无法访问摄像头。\n请使用 HTTPS 协议或 localhost 访问。";
                 debugStatus.textContent = "环境不安全：缺少 HTTPS";
+                debugStatus.style.color = '#ff0000';
                 alert(msg);
             }
         });
 
-        function onResults(results) {
-            frameCount++;
-            const now = performance.now();
-            const fps = 1000 / (now - lastFrameTime);
-            lastFrameTime = now;
-
-            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                STATE.handDetected = true;
-                handIndicator.classList.add('active');
-
-                const landmarks = results.multiHandLandmarks[0];
-                const wrist = landmarks[0];
-                const middleMCP = landmarks[9]; // Middle finger base
-
-                // --- NEW ALGORITHM: Finger Extension Ratio ---
-                // We check 4 fingers: Index(8), Middle(12), Ring(16), Pinky(20)
-                // We compare the distance from Wrist(0) to Tip vs Wrist(0) to MCP(base)
-                // If Tip distance is significantly larger than MCP distance, finger is extended.
-
-                const fingerIndices = [8, 12, 16, 20];
-                const mcpIndices = [5, 9, 13, 17];
-                let totalRatio = 0;
-
-                for (let i = 0; i < 4; i++) {
-                    const tip = landmarks[fingerIndices[i]];
-                    const mcp = landmarks[mcpIndices[i]];
-
-                    const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
-                    const distMcp = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
-
-                    // Avoid division by zero, though unlikely
-                    if (distMcp > 0.001) {
-                        totalRatio += distTip / distMcp;
-                    }
-                }
-
-                const avgRatio = totalRatio / 4;
-
-                // Thresholds based on testing:
-                // Fist (Closed): Ratio usually ~0.8 to 1.2
-                // Open Hand: Ratio usually > 1.8
-                // We map this range to 0-1 for openness
-                const minRatio = 1.1; // Below this is closed
-                const maxRatio = 1.7; // Above this is fully open
-
-                let rawOpenness = (avgRatio - minRatio) / (maxRatio - minRatio);
-
-                // Clamp
-                if (rawOpenness < 0) rawOpenness = 0;
-                if (rawOpenness > 1) rawOpenness = 1;
-
-                STATE.targetOpenness = rawOpenness;
-                STATE.targetHandX = middleMCP.x;
-
-                // Debug output
-                debugStatus.textContent = `FPS: ${fps.toFixed(1)} | 手指: ${avgRatio.toFixed(2)} | 张开: ${rawOpenness.toFixed(2)}`;
-
-                const scale = 1 + STATE.targetOpenness * 1.5;
-                handIndicator.style.transform = `scale(${scale})`;
-
-            } else {
-                STATE.handDetected = false;
-                STATE.targetOpenness = 0;
-                STATE.targetHandX = 0.5; // Reset to center
-                handIndicator.classList.remove('active');
-                handIndicator.style.transform = `scale(1)`;
-                debugStatus.textContent = `系统正常 | 处理帧数: ${frameCount} | 未检测到手势`;
-            }
-        }
-
         function startCamera() {
             updateProgress(90, '正在请求摄像头权限...');
             debugStatus.textContent = "正在请求摄像头...";
-
-            // Explicit constraints for mobile
-            const constraints = {
-                width: 640,
-                height: 480,
-                facingMode: 'user' // Prefer front camera
-            };
+            console.log('[Camera] Starting camera initialization...');
 
             const camera = new Camera(videoElement, {
                 onFrame: async () => {
-                    // debugStatus.textContent = "正在处理视频帧..."; // Too spammy, but confirms loop
-                    await hands.send({ image: videoElement });
+                    sendCount++;
+
+                    // Check if video has valid content
+                    if (sendCount === 1) {
+                        console.log('[Camera] First frame received!');
+                        console.log('[Camera] Video dimensions:', videoElement.videoWidth, 'x', videoElement.videoHeight);
+                        console.log('[Camera] Video ready state:', videoElement.readyState);
+                    }
+
+                    // Log every 60 frames
+                    if (sendCount % 60 === 1) {
+                        console.log(`[Camera] Sending frame #${sendCount} to MediaPipe. Video ready: ${videoElement.readyState >= 2}`);
+                    }
+
+                    // Check if video has valid dimensions before sending
+                    if (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+                        try {
+                            await hands.send({ image: videoElement });
+                        } catch (e) {
+                            console.error("Hands send error:", e);
+                            debugStatus.textContent = "AI处理错误: " + e.message;
+                        }
+                    } else if (sendCount < 10) {
+                        console.warn('[Camera] Video not ready yet, waiting...');
+                    }
                 },
                 width: 640,
                 height: 480
             });
 
-            // Note: MediaPipe Camera Utils handles getUserMedia internally.
-            // If it fails, we catch it below.
+            console.log('[Camera] Camera object created, starting...');
 
             camera.start()
                 .then(() => {
@@ -434,6 +399,14 @@
                     debugStatus.textContent = "摄像头已启动 | 等待手势...";
                     updateProgress(100, '加载完成!');
                     setTimeout(hideLoadingScreen, 500);
+
+                    // Watchdog: Check if data starts flowing
+                    setTimeout(() => {
+                        if (frameCount === 0) {
+                            debugStatus.textContent = "警告: AI模型未响应 (请检查libs文件是否完整)";
+                            console.warn("MediaPipe Hands not producing results.");
+                        }
+                    }, 5000);
                 })
                 .catch(err => {
                     console.error("Camera error:", err);
